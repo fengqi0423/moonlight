@@ -206,5 +206,56 @@ class NeuralNetworkClassifier(Classifier):
             self.weights_1[i] = self.weights_1[i]/S[0,i]
         return
 
+
+    def evaluate(self, test_data, test_labels):
+        N, K = test_labels.shape
+        _, _, Z_t_b = self.predict(test_data, 'binary')
+        true_positives   = zeros(K)
+        true_negatives   = zeros(K)
+        false_positives  = zeros(K)
+        false_negatives  = zeros(K)
+        total_positive_count = zeros(K)
+        wrong_cases = []
+
+        for i in range(N):
+            l = numpy.array(test_labels[i]==1)
+            p = numpy.array(Z_t_b[i]==1)
+
+            total_positive_count[p]+=1
+            if (p==l).all() == True:
+                true_positives[l]+=1
+                true_negatives[l==False]+=1
+            else:
+                wrong_cases.append(i+1)
+                false_positives[p]+=1
+                false_negatives[l]+=1
+                true_negatives[logical_or(p,l)==False]+=1
+
+        total_negative_count = N - total_positive_count
+
+        stats_tag="[Stats]"
+        dlog.debug("%s True positives:  [%s]" % (stats_tag, true_positives))
+        dlog.debug("%s False positives: [%s]" % (stats_tag, false_positives))
+        dlog.debug("%s True negatives:  [%s]" % (stats_tag, true_negatives))
+        dlog.debug("%s False negatives: [%s]" % (stats_tag, false_negatives))
+
+        dlog.debug("%s True positives rate:  [%s]" % (stats_tag, true_positives/total_positive_count))
+        dlog.debug("%s False positives rate: [%s]" % (stats_tag, false_positives/total_positive_count))
+        dlog.debug("%s True negatives rate:  [%s]" % (stats_tag, true_negatives/total_negative_count))
+        dlog.debug("%s False negatives rate: [%s]" % (stats_tag, false_negatives/total_negative_count))
+
+        wrong_tag="[Wrong]"
+        dlog.debug("%s %s" % (wrong_tag, wrong_cases))
+
+        detail_tag="[Details]"
+        _, _, Z_t_r = self.predict(test_data, 'raw')
+        for i in range(N):
+            ind = i+1
+            predict = nonzero(Z_t_b[i]==1)[0][0]
+            actual  = nonzero(test_labels[i]==1)[0][0]
+            mark = "Correct" if ind not in wrong_cases else "Incorrect"
+            dlog.debug("%s[%d][%s][Predict: %d][Actual: %d][Highest Conf: %s] %s\n" % (detail_tag, ind, mark, predict, actual, amax(Z_t_r[i]), Z_t_r[i]))
+
+
 if __name__ == "__main__":
     nn = NeuralNetworkClassifier(2, 1, 2)
