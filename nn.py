@@ -1,10 +1,14 @@
 import numpy
 import logging
-from numpy import ones, zeros, mat, hstack, vstack, mean, std, multiply, square, argmax, amax
+from numpy import ones, zeros, mat, hstack, vstack, mean, std, multiply, square, argmax, amax, transpose, logical_or, nonzero
 from base import Classifier
 
 dlog = logging.getLogger('data')
 ilog = logging.getLogger('info')
+dlog.setLevel(logging.DEBUG)
+ilog.setLevel(logging.DEBUG)
+dlog.addHandler(logging.StreamHandler())
+ilog.addHandler(logging.StreamHandler())
 numpy.set_printoptions(precision=4, linewidth=10000, suppress=True)
 
 class NeuralNetworkClassifier(Classifier):
@@ -12,23 +16,29 @@ class NeuralNetworkClassifier(Classifier):
         """
         input_dim  - input dimension
         output_dim - output dimension
-        hidden_dim - number of hidden units
+        hidden_dim - number of hidden units, per layer, in the order from input to output
         learning_rate - the numerical learning_rate for the stochastic gradient descend. Note the training method automatically normalize data
         train_epoches - the number of times the entire training set is used
         error_tolerance - target mis-classification rate, if achieved in training data, training will stop.
         """
-        self.nlayer = 2 # No. of weight layers, only supports 2 now
         self.input_dim  = input_dim
         self.output_dim = output_dim
-        self.hidden_dim = hidden_dim
+        self.hidden_dim = hidden_dim if type(hidden_dim)==list else [hidden_dim]
         self.learning_rate = learning_rate
         self.train_epoches = train_epoches
         self.error_tolerance = error_tolerance
         self.momentum = momentum
 
-        # Initialize weights layer
-        self.weights_1 = mat(numpy.random.random((self.input_dim+1,  self.hidden_dim)))
-        self.weights_2 = mat(numpy.random.random((self.hidden_dim+1, self.output_dim)))
+        # Initialize weights layers
+        self.weights = []
+        for i in range(len(self.hidden_dim)):
+            if i == 0:
+                w = mat(numpy.random.random((self.input_dim+1,  self.hidden_dim[i])))
+            else:
+                w = mat(numpy.random.random((self.hidden_dim[i-1]+1, self.hidden_dim[i])))
+            self.weights.append(w)
+        self.weights.append(mat(numpy.random.random((self.hidden_dim[-1]+1,  self.output_dim))))
+        self.nlayers = len(self.weights)
 
     def normalize(self, A):
         """
@@ -48,35 +58,31 @@ class NeuralNetworkClassifier(Classifier):
 
     def save_weights(self, file_name='weights.txt'):
         with open(file_name, 'w') as f:
-            a, b = self.weights_1.shape
-            c, d = self.weights_2.shape
-            f.write("%d,%d,%d,%d\n" % (a,b,c,d))
-            a1 = numpy.array(self.weights_1)
-            a2 = numpy.array(self.weights_2)
-            for i in range(a):
-                l = ','.join([str(val) for val in a1[i]])
-                f.write(l+"\n")
-            for i in range(c):
-                l = ','.join([str(val) for val in a2[i]])
-                f.write(l+"\n")
+            for i in range(self.nlayers):
+                w = self.weights[i]
+                a, b = w.shape
+                f.write("%d|%d|%d\n" % (i, a, b))
+                a1 = numpy.array(w)
+                for i in range(a):
+                    l = ','.join([str(val) for val in a1[i]])
+                    f.write(l+"\n")
 
     def load_weights(self, file_name='weights.txt'):
         with open(file_name) as f:
+            self.weights = []
+            self.hidden_dim = []
+            self.nlayers = 0
             l = f.readline()
-            a,b,c,d = [int(val) for val in l.split(',')]
-            self.input_dim  = a-1
-            self.output_dim = d
-            self.hidden_dim = b
-            weights_1 = []
-            weights_2 = []
-            for i in range(a):
+            while l:
+                _,a,b = [int(val) for val in l.strip('\n').split('|')]
+                self.nlayers += 1
+                self.hidden_dim.append(a)
+                w = []
+                for i in range(a):
+                    l = f.readline()
+                    w.append([float(val) for val in l.split(',')])
+                self.weights.append(vstack(w))
                 l = f.readline()
-                weights_1.append([float(val) for val in l.split(',')])
-            self.weights_1 = vstack(weights_1)
-            for i in range(c):
-                l = f.readline()
-                weights_2.append([float(val) for val in l.split(',')])
-            self.weights_2 = vstack(weights_2)
 
     def activate(self, x):
         """
@@ -84,9 +90,9 @@ class NeuralNetworkClassifier(Classifier):
         The activation function should be differentiable everywhere. For now I only support sigmoid function.
         x can be matrix or vector or scalar
         """
-        ill = (x < -50)
         y = 1/(1+numpy.exp(-x))
-        y[ill] = 0
+        y[(x < -50)] = 0
+        y[(x > 50)]  = 1
         return y
 
     def normalized_activate(self, A):
@@ -111,23 +117,29 @@ class NeuralNetworkClassifier(Classifier):
         if M != self.input_dim:
             raise Exception("Wrong dimension for training data -  expecting %d, seeing %d" % (self.input_dim, M))
 
-        os = ones((N,1), numpy.float)        # Padding ones to support the offset parameter
-        X  = hstack((data, os))
-        Y  = X*self.weights_1
-        Y  = self.activate(Y)
-        Y  = hstack((Y, os))
-        Z  = Y*self.weights_2
+        Y = data
+        L = len(self.weights)
+        NValues = [] # Need to store each neuron's value, 
+        for i in range(L):
+            w = self.weights[i]
+            N, M = Y.shape
+            os = ones((N,1), numpy.float)        # Padding ones to support the offset parameter
+            Y  = hstack((Y, os))
+            NValues.append(Y)       # This will store every layer's output except the real output neurons'
+            Y  = Y*w
+            if i < L-1:
+                Y  = self.activate(Y)
+    
         if mode=='raw':
-            Z = self.activate(Z)
+            Z = self.activate(Y)
         elif mode=='normalized':
-            Z = self.normalized_activate(Z)
+            Z = self.normalized_activate(Y)
         elif mode=='binary':
-            M  = numpy.amax(Z, 1)
-            Zr = zeros(Z.shape)
-            Zr[(Z==M)]=1
-            Z  = Zr
+            M = numpy.amax(Y, 1)
+            Z = zeros(Y.shape)
+            Z[(Y==M)]=1
 
-        return X, Y, Z
+        return Z, NValues
 
     def train(self, data, labels, test_data=None, test_labels=None):
         """
@@ -158,12 +170,15 @@ class NeuralNetworkClassifier(Classifier):
         report_block  = max(1, N1/20)
         learning_rate = self.learning_rate
         momentum      = self.momentum
-        d_weights_1   = mat(zeros(self.weights_1.shape))
-        d_weights_2   = mat(zeros(self.weights_2.shape))
+
+        layers = range(self.nlayers)
+        layers.reverse()
+        previous_dw = [None] * self.nlayers
         for i in range(self.train_epoches):
 
             ilog.debug("Start training epoch %d" % i)
             # Since I decided to use stochastic gradient method, here is the interation over data points
+
             for j in range(N1):
                 datum = data[j] # Geeee it's still a matrix!
                 label = labels[j]
@@ -171,45 +186,62 @@ class NeuralNetworkClassifier(Classifier):
                 # Multi-task learning essentially makes the training data for each class very imbalanced
                 # One out of K data points is positive for each class.
                 # So amplify this positive training point by K-1 times
-                x, y, z = self.predict(datum, 'raw')
+                z, nvalues = self.predict(datum, 'raw')
 
-                delta_z = (z-label)
-                delta_y = multiply((1-z), z) # delta_y has dimension of z
-                delta_y = multiply(delta_y, delta_z)
-                delta_x = self.weights_2*delta_y.T
-                delta_x = multiply(delta_x.T, y)
-                delta_x = multiply(delta_x, 1-y)
+                # Now compute the gradient for each layer
+                # Start from the top layer
+                signal = label - z
+                assert len(layers) == len(nvalues), Exception("There are %d weight layers with only %d input layers" % (len(layers), len(nvalues)))
 
-                d_weights_2 = y.T*delta_y*(1-momentum) + d_weights_2*momentum
-                d_weights_1 = x.T*delta_x[:,0:self.hidden_dim]*(1-momentum) + d_weights_1*momentum
+                for l in layers:
+                    weight = self.weights[l]
+                    input_val = nvalues[l]
 
-                self.weights_2 = self.weights_2-learning_rate*d_weights_2
-                self.weights_1 = self.weights_1-learning_rate*d_weights_1
+                    if l < self.nlayers - 1:
+                        # Except for the output layer, 
+                        # the offset neurons are not connected to lower layers
+                        signal = signal[:,:-1]
+
+                    dw = transpose(input_val) * signal
+                    signal = signal * transpose(weight) 
+                    signal = multiply(signal, nvalues[l])
+                    signal = multiply(signal, 1-nvalues[l])
+
+                    if previous_dw[l] != None:
+                        dw = previous_dw[l]*momentum + (1-momentum)*dw
+                    weight = weight + dw * learning_rate
+
+                    self.weights[l] = weight
+                    previous_dw[l] = dw
 
                 if j % report_block == 0:
                     ilog.debug("Finished %d%%" % (j*100/N1))
                     if test_data is not None and test_labels is not None:
-                        X_t, Y_t, Z_t = self.predict(test_data, 'binary')
+                        Z_t, _ = self.predict(test_data, 'binary')
                         err_rate, err_cases = self.examine(Z_t, test_labels)
                         ilog.debug("Error rate: %f" % err_rate)
                         if err_rate <= self.error_tolerance: 
+                            self.evaluate(test_data, test_labels)
                             # De-normalize weights
-                            self.weights_1[L] = self.weights_1[L]-multiply(M, 1/S)*self.weights_1[0:L]
+                            self.weights[0][L] = self.weights[0][L]-multiply(M, 1/S)*self.weights[0][0:L]
                             for i in range(L):
-                                self.weights_1[i] = self.weights_1[i]/S[0,i]
+                                self.weights[0][i] = self.weights[0][i]/S[0,i]
                             return
 
         self.evaluate(test_data, test_labels)
         # De-normalize weights
-        self.weights_1[L] = self.weights_1[L]-multiply(M, 1/S)*self.weights_1[0:L]
+        self.weights[0][L] = self.weights[0][L]-multiply(M, 1/S)*self.weights[0][0:L]
         for i in range(L):
-            self.weights_1[i] = self.weights_1[i]/S[0,i]
+            self.weights[0][i] = self.weights[0][i]/S[0,i]
         return
 
 
     def evaluate(self, test_data, test_labels):
         N, K = test_labels.shape
-        _, _, Z_t_b = self.predict(test_data, 'binary')
+        Z_t_b, _ = self.predict(test_data, 'binary')
+
+        test_labels = numpy.array(test_labels)
+        Z_t_b = numpy.array(Z_t_b)
         true_positives   = zeros(K)
         true_negatives   = zeros(K)
         false_positives  = zeros(K)
@@ -218,9 +250,8 @@ class NeuralNetworkClassifier(Classifier):
         wrong_cases = []
 
         for i in range(N):
-            l = numpy.array(test_labels[i]==1)
-            p = numpy.array(Z_t_b[i]==1)
-
+            l = test_labels[i]==1
+            p = Z_t_b[i]==1
             total_positive_count[p]+=1
             if (p==l).all() == True:
                 true_positives[l]+=1
@@ -248,14 +279,33 @@ class NeuralNetworkClassifier(Classifier):
         dlog.debug("%s %s" % (wrong_tag, wrong_cases))
 
         detail_tag="[Details]"
-        _, _, Z_t_r = self.predict(test_data, 'raw')
+        Z_t_r, _ = numpy.array(self.predict(test_data, 'raw'))
         for i in range(N):
             ind = i+1
-            predict = nonzero(Z_t_b[i]==1)[0][0]
-            actual  = nonzero(test_labels[i]==1)[0][0]
+            predict = nonzero(Z_t_b[i])[0]
+            actual  = nonzero(test_labels[i])[0]
             mark = "Correct" if ind not in wrong_cases else "Incorrect"
             dlog.debug("%s[%d][%s][Predict: %d][Actual: %d][Highest Conf: %s] %s\n" % (detail_tag, ind, mark, predict, actual, amax(Z_t_r[i]), Z_t_r[i]))
 
 
 if __name__ == "__main__":
-    nn = NeuralNetworkClassifier(2, 1, 2)
+    nn = NeuralNetworkClassifier(2, 2, [1], 2, 1000)
+    train_data = mat([
+        [9,6], 
+        [10,2],
+        [5,5],
+        [3,1],
+        ])
+    train_label = mat([
+        [1,0],
+        [1,0],
+        [0,1],
+        [0,1],
+        ])
+    nn.train(train_data, train_label)
+
+    nn.save_weights()
+    nn.load_weights()
+    print "Reloaded weights from file."
+    nn.evaluate(train_data, train_label)
+    

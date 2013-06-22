@@ -38,7 +38,7 @@ class Classifier(object):
 
     def evaluate(self, test_data, test_labels):
         N, K = test_labels.shape
-        Z_t_b = self.predict(test_data, 'binary')
+        Z_t_b, Z_t_r = self.predict(test_data)
         true_positives   = zeros(K)
         true_negatives   = zeros(K)
         false_positives  = zeros(K)
@@ -77,7 +77,6 @@ class Classifier(object):
         dlog.debug("%s %s" % (wrong_tag, wrong_cases))
 
         detail_tag="[Details]"
-        Z_t_r = self.predict(test_data, 'raw')
         for i in range(N):
             ind = i+1
             predict = nonzero(Z_t_b[i]==1)[0][0]
