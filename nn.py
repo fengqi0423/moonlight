@@ -1,13 +1,15 @@
 import numpy
 import logging
+import pylab
 from numpy import ones, zeros, mat, hstack, vstack, mean, std, multiply, square, argmax, amax, transpose, logical_or, nonzero
+from matplotlib import pyplot as plt
 from base import Classifier
 
 dlog = logging.getLogger('data')
 ilog = logging.getLogger('info')
 dlog.setLevel(logging.DEBUG)
 ilog.setLevel(logging.DEBUG)
-dlog.addHandler(logging.StreamHandler())
+dlog.addHandler(logging.FileHandler('test.log'))
 ilog.addHandler(logging.StreamHandler())
 numpy.set_printoptions(precision=4, linewidth=10000, suppress=True)
 
@@ -174,6 +176,7 @@ class NeuralNetworkClassifier(Classifier):
         layers = range(self.nlayers)
         layers.reverse()
         previous_dw = [None] * self.nlayers
+        error_rates = []
         for i in range(self.train_epoches):
 
             ilog.debug("Start training epoch %d" % i)
@@ -219,6 +222,7 @@ class NeuralNetworkClassifier(Classifier):
                     if test_data is not None and test_labels is not None:
                         Z_t, _ = self.predict(test_data, 'binary')
                         err_rate, err_cases = self.examine(Z_t, test_labels)
+                        error_rates.append(err_rate)
                         ilog.debug("Error rate: %f" % err_rate)
                         if err_rate <= self.error_tolerance: 
                             self.evaluate(test_data, test_labels)
@@ -226,6 +230,8 @@ class NeuralNetworkClassifier(Classifier):
                             self.weights[0][L] = self.weights[0][L]-multiply(M, 1/S)*self.weights[0][0:L]
                             for i in range(L):
                                 self.weights[0][i] = self.weights[0][i]/S[0,i]
+                            plt.plot(range(len(error_rates)), error_rates)
+                            pylab.show()
                             return
 
         self.evaluate(test_data, test_labels)
@@ -233,6 +239,8 @@ class NeuralNetworkClassifier(Classifier):
         self.weights[0][L] = self.weights[0][L]-multiply(M, 1/S)*self.weights[0][0:L]
         for i in range(L):
             self.weights[0][i] = self.weights[0][i]/S[0,i]
+        plt.plot(range(len(error_rates)), error_rates)
+        pylab.show()
         return
 
 
@@ -289,7 +297,7 @@ class NeuralNetworkClassifier(Classifier):
 
 
 if __name__ == "__main__":
-    nn = NeuralNetworkClassifier(2, 2, [1], 2, 1000)
+    nn = NeuralNetworkClassifier(2, 2, [4,3], 2, 1000)
     train_data = mat([
         [9,6], 
         [10,2],
