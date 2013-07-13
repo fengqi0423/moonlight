@@ -1,10 +1,11 @@
 import numpy
 import logging
 import pylab
-from numpy import ones, zeros, hstack, vstack, mean, std, square, argmax, amax, transpose, logical_or, nonzero, array
+from numpy import ones, zeros, hstack, vstack, mean, std, amax, transpose, logical_or, nonzero, array
 from numpy import dot as matrix_multiply
 from matplotlib import pyplot as plt
 from base import Classifier
+from pycuda import gpuarray
 
 dlog = logging.getLogger('data')
 ilog = logging.getLogger('info')
