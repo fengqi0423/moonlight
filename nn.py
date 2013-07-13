@@ -1,7 +1,8 @@
 import numpy
 import logging
 import pylab
-from numpy import ones, zeros, mat, hstack, vstack, mean, std, multiply, square, argmax, amax, transpose, logical_or, nonzero
+from numpy import ones, zeros, hstack, vstack, mean, std, square, argmax, amax, transpose, logical_or, nonzero, array
+from numpy import dot as matrix_multiply
 from matplotlib import pyplot as plt
 from base import Classifier
 
@@ -35,11 +36,11 @@ class NeuralNetworkClassifier(Classifier):
         self.weights = []
         for i in range(len(self.hidden_dim)):
             if i == 0:
-                w = mat(numpy.random.random((self.input_dim+1,  self.hidden_dim[i])))
+                w = numpy.random.random((self.input_dim+1,  self.hidden_dim[i]))
             else:
-                w = mat(numpy.random.random((self.hidden_dim[i-1]+1, self.hidden_dim[i])))
+                w = numpy.random.random((self.hidden_dim[i-1]+1, self.hidden_dim[i]))
             self.weights.append(w)
-        self.weights.append(mat(numpy.random.random((self.hidden_dim[-1]+1,  self.output_dim))))
+        self.weights.append(numpy.random.random((self.hidden_dim[-1]+1,  self.output_dim)))
         self.nlayers = len(self.weights)
 
     def normalize(self, A):
@@ -48,10 +49,12 @@ class NeuralNetworkClassifier(Classifier):
         """
         S = std(A, 0)
         M = mean(A, 0)
+        S = S.reshape((1, S.shape[0]))
+        M = M.reshape((1, M.shape[0]))
 
         N, K = A.shape
         zero_std_dims  = [i for i in range(K) if S[0,i]<=1]
-        ilog.warn("WARNING: Dimension: %s has ZERO standard deviation. You should remove them from dataset." % str(zero_std_dims))
+        ilog.warn("WARNING: Dimension: %s has small standard deviation, and are not normalized." % str(zero_std_dims))
 
         for dim in zero_std_dims:
             S[0,dim] = 1
@@ -64,9 +67,8 @@ class NeuralNetworkClassifier(Classifier):
                 w = self.weights[i]
                 a, b = w.shape
                 f.write("%d|%d|%d\n" % (i, a, b))
-                a1 = numpy.array(w)
                 for i in range(a):
-                    l = ','.join([str(val) for val in a1[i]])
+                    l = ','.join([str(val) for val in w[i]])
                     f.write(l+"\n")
 
     def load_weights(self, file_name='weights.txt'):
@@ -128,7 +130,7 @@ class NeuralNetworkClassifier(Classifier):
             os = ones((N,1), numpy.float)        # Padding ones to support the offset parameter
             Y  = hstack((Y, os))
             NValues.append(Y)       # This will store every layer's output except the real output neurons'
-            Y  = Y*w
+            Y  = matrix_multiply(Y, w)
             if i < L-1:
                 Y  = self.activate(Y)
     
@@ -137,7 +139,7 @@ class NeuralNetworkClassifier(Classifier):
         elif mode=='normalized':
             Z = self.normalized_activate(Y)
         elif mode=='binary':
-            M = numpy.amax(Y, 1)
+            M = amax(Y, 1).reshape(Y.shape[0], 1)
             Z = zeros(Y.shape)
             Z[(Y==M)]=1
 
@@ -166,8 +168,8 @@ class NeuralNetworkClassifier(Classifier):
 
 
         normalized_data, M, S = self.normalize(vstack((data, test_data)))
-        data      = normalized_data[:N1]
-        test_data = normalized_data[N1:]
+        data      = normalized_data[:N1,:]
+        test_data = normalized_data[N1:,:]
 
         report_block  = max(1, N1/20)
         learning_rate = self.learning_rate
@@ -183,8 +185,8 @@ class NeuralNetworkClassifier(Classifier):
             # Since I decided to use stochastic gradient method, here is the interation over data points
 
             for j in range(N1):
-                datum = data[j] # Geeee it's still a matrix!
-                label = labels[j]
+                datum = data[j:j+1]
+                label = labels[j:j+1]
 
                 # Multi-task learning essentially makes the training data for each class very imbalanced
                 # One out of K data points is positive for each class.
@@ -205,10 +207,10 @@ class NeuralNetworkClassifier(Classifier):
                         # the offset neurons are not connected to lower layers
                         signal = signal[:,:-1]
 
-                    dw = transpose(input_val) * signal
-                    signal = signal * transpose(weight) 
-                    signal = multiply(signal, nvalues[l])
-                    signal = multiply(signal, 1-nvalues[l])
+                    dw = matrix_multiply(transpose(input_val), signal)
+                    signal = matrix_multiply(signal, transpose(weight))
+                    signal = signal * nvalues[l]
+                    signal = signal * (1-nvalues[l])
 
                     if previous_dw[l] != None:
                         dw = previous_dw[l]*momentum + (1-momentum)*dw
@@ -227,18 +229,18 @@ class NeuralNetworkClassifier(Classifier):
                         if err_rate <= self.error_tolerance: 
                             self.evaluate(test_data, test_labels)
                             # De-normalize weights
-                            self.weights[0][L] = self.weights[0][L]-multiply(M, 1/S)*self.weights[0][0:L]
+                            self.weights[0][L:L+1] = self.weights[0][L:L+1]-matrix_multiply(M*(1/S), self.weights[0][0:L])
                             for i in range(L):
-                                self.weights[0][i] = self.weights[0][i]/S[0,i]
+                                self.weights[0][i:i+1] = self.weights[0][i:i+1]/S[0,i]
                             plt.plot(range(len(error_rates)), error_rates)
                             pylab.show()
                             return
 
         self.evaluate(test_data, test_labels)
         # De-normalize weights
-        self.weights[0][L] = self.weights[0][L]-multiply(M, 1/S)*self.weights[0][0:L]
+        self.weights[0][L:L+1] = self.weights[0][L:L+1]-matrix_multiply(M*(1/S), self.weights[0][0:L])
         for i in range(L):
-            self.weights[0][i] = self.weights[0][i]/S[0,i]
+            self.weights[0][i:i+1] = self.weights[0][i:i+1]/S[0,i]
         plt.plot(range(len(error_rates)), error_rates)
         pylab.show()
         return
@@ -248,8 +250,6 @@ class NeuralNetworkClassifier(Classifier):
         N, K = test_labels.shape
         Z_t_b, _ = self.predict(test_data, 'binary')
 
-        test_labels = numpy.array(test_labels)
-        Z_t_b = numpy.array(Z_t_b)
         true_positives   = zeros(K)
         true_negatives   = zeros(K)
         false_positives  = zeros(K)
@@ -258,7 +258,7 @@ class NeuralNetworkClassifier(Classifier):
         wrong_cases = []
 
         for i in range(N):
-            l = test_labels[i]==1
+            l = test_labels[i,:]==1
             p = Z_t_b[i]==1
             total_positive_count[p]+=1
             if (p==l).all() == True:
@@ -287,7 +287,7 @@ class NeuralNetworkClassifier(Classifier):
         dlog.debug("%s %s" % (wrong_tag, wrong_cases))
 
         detail_tag="[Details]"
-        Z_t_r, _ = numpy.array(self.predict(test_data, 'raw'))
+        Z_t_r, _ = array(self.predict(test_data, 'raw'))
         for i in range(N):
             ind = i+1
             predict = nonzero(Z_t_b[i])[0]
@@ -297,14 +297,14 @@ class NeuralNetworkClassifier(Classifier):
 
 
 if __name__ == "__main__":
-    nn = NeuralNetworkClassifier(2, 2, [4,3], 2, 1000)
-    train_data = mat([
+    nn = NeuralNetworkClassifier(2, 2, [4,3], 2, 10)
+    train_data = array([
         [9,6], 
         [10,2],
         [5,5],
         [3,1],
         ])
-    train_label = mat([
+    train_label = array([
         [1,0],
         [1,0],
         [0,1],
