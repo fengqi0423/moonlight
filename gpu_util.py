@@ -34,7 +34,7 @@ mod = SourceModule(
                     sum = sum + a[ki+kk] * b[kkn];
                     kkn = kkn + n;
                 }
-                r[i*k+j] = sum;
+                r[i*m+j] = sum;
             }
         }
     }
