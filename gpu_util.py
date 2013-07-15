@@ -101,7 +101,7 @@ if __name__ == "__main__":
 #    b = numpy.ones((dim2, dim1), dtype=numpy.float32)
 
     t0 = time.time() 
-    r = matrix_multiply_gpu(a, b, (25, 1, 1), (100, 1))
+    r = matrix_multiply_gpu(a, b, (5, 5, 1), (100, 100))
     t1 = time.time()
 #    print r
     print t1-t0

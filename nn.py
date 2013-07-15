@@ -17,7 +17,7 @@ ilog.addHandler(logging.StreamHandler())
 numpy.set_printoptions(precision=4, linewidth=10000, suppress=True)
 
 class NeuralNetworkClassifier(Classifier):
-    def __init__(self, input_dim, output_dim, hidden_dim, learning_rate=0.01, train_epoches=5, error_tolerance=0, momentum=0.5, use_gpu=False):
+    def __init__(self, input_dim, output_dim, hidden_dim, batch_size=100, learning_rate=0.01, train_epoches=5, error_tolerance=0, momentum=0.5, use_gpu=False):
         """
         input_dim  - input dimension
         output_dim - output dimension
@@ -29,6 +29,7 @@ class NeuralNetworkClassifier(Classifier):
         self.input_dim  = input_dim
         self.output_dim = output_dim
         self.hidden_dim = hidden_dim if type(hidden_dim)==list else [hidden_dim]
+        self.batch_size = batch_size
         self.learning_rate = learning_rate
         self.train_epoches = train_epoches
         self.error_tolerance = error_tolerance
@@ -202,9 +203,9 @@ class NeuralNetworkClassifier(Classifier):
             ilog.debug("Start training epoch %d" % i)
             # Since I decided to use stochastic gradient method, here is the interation over data points
 
-            for j in range(N1):
-                datum = data[j:j+1]
-                label = labels[j:j+1]
+            for j in range(0, N1, self.batch_size):
+                datum = data[j:j+self.batch_size]
+                label = labels[j:j+self.batch_size]
 
                 # Multi-task learning essentially makes the training data for each class very imbalanced
                 # One out of K data points is positive for each class.
