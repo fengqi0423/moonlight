@@ -24,30 +24,26 @@ mod = SourceModule(
         int end_m   = start_m + per_thread_m;
         int end_n   = start_n + per_thread_n;
 
-        int i, j, kk, ki, kkn;
+        int i, j, kk;
         float sum=0;
         for(i=start_m; i<end_m && i<m; i++){
-            ki = k*i;
             for(j=start_n; j<end_n && j<n; j++, sum=0.0){
-                kkn=j;
                 for(kk=0; kk < k; kk++){
-                    sum = sum + a[ki+kk] * b[kkn];
-                    kkn = kkn + n;
+                    sum = sum + a[k*i+kk] * b[j+kk*n];
                 }
-                r[i*m+j] = sum;
+                r[i*n+j] = sum;
             }
         }
     }
     """
     )
 
-def matrix_multiply_gpu(a, b, block=(5,5,1), grid=(20,20)):
+def matrix_multiply_gpu(a, b, block=(5,5,1), grid=(200,200)):
     """
     a is a m-by-k dimensional 2d numpy array
     b is a k-by-n dimensional 2d numpy array
     returns a m-by-n dimensional 2d numpy array that is the product of a and b
     """
-    t0 = time.time()
     m, k1 = a.shape
     k2, n = b.shape
     assert k1==k2, "Wokao, matrics dimesions do not match."
@@ -63,11 +59,8 @@ def matrix_multiply_gpu(a, b, block=(5,5,1), grid=(20,20)):
     b_gpu = cuda.mem_alloc(b.nbytes)
     r_gpu = cuda.mem_alloc(m*n*4)
 
-    cuda.memcpy_htod(a_gpu, a)
-    cuda.memcpy_htod(b_gpu, b)
-
-    cuda.memcpy_dtoh(a, a_gpu)
-    cuda.memcpy_dtoh(b, b_gpu)
+    cuda.memcpy_htod(a_gpu, numpy.array(a))
+    cuda.memcpy_htod(b_gpu, numpy.array(b))
 
     func = mod.get_function("matrix_multiply")
     func(
@@ -81,8 +74,17 @@ def matrix_multiply_gpu(a, b, block=(5,5,1), grid=(20,20)):
         block=block,
         )
     cuda.Context.synchronize()
-
     cuda.memcpy_dtoh(r, r_gpu)
+
+    a_gpu.free()
+    b_gpu.free()
+    r_gpu.free()
+    
+    if numpy.isnan(r).any():
+        print "a",a
+        print "b",b
+        print "r",r
+        exit(1)
     return r
 
 
@@ -92,8 +94,10 @@ if __name__ == "__main__":
 
     dim1 = int(sys.argv[1])
     dim2 = int(sys.argv[2])
-    a = numpy.random.randn(dim1, dim2)
-    b = numpy.random.randn(dim2, dim1)
+    
+    dim2 = int(sys.argv[2])
+    a = numpy.random.randn(dim1, dim2).astype(numpy.float32)
+    b = numpy.random.randn(dim2, dim1).astype(numpy.float32)
 #    a = numpy.ones((dim1, dim2), dtype=numpy.float32)
 #    b = numpy.ones((dim2, dim1), dtype=numpy.float32)
 

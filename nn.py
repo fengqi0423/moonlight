@@ -1,3 +1,4 @@
+import sys
 import numpy
 import logging
 import pylab
@@ -5,7 +6,7 @@ from numpy import ones, zeros, hstack, vstack, mean, std, amax, transpose, logic
 from numpy import dot as matrix_multiply
 from matplotlib import pyplot as plt
 from base import Classifier
-from pycuda import gpuarray
+from gpu_util import matrix_multiply_gpu
 
 dlog = logging.getLogger('data')
 ilog = logging.getLogger('info')
@@ -16,7 +17,7 @@ ilog.addHandler(logging.StreamHandler())
 numpy.set_printoptions(precision=4, linewidth=10000, suppress=True)
 
 class NeuralNetworkClassifier(Classifier):
-    def __init__(self, input_dim, output_dim, hidden_dim, learning_rate=0.01, train_epoches=5, error_tolerance=0, momentum=0.5):
+    def __init__(self, input_dim, output_dim, hidden_dim, learning_rate=0.01, train_epoches=5, error_tolerance=0, momentum=0.5, use_gpu=False):
         """
         input_dim  - input dimension
         output_dim - output dimension
@@ -32,16 +33,17 @@ class NeuralNetworkClassifier(Classifier):
         self.train_epoches = train_epoches
         self.error_tolerance = error_tolerance
         self.momentum = momentum
+        self.use_gpu = use_gpu
 
         # Initialize weights layers
         self.weights = []
         for i in range(len(self.hidden_dim)):
             if i == 0:
-                w = numpy.random.random((self.input_dim+1,  self.hidden_dim[i]))
+                w = numpy.random.random((self.input_dim+1,  self.hidden_dim[i])).astype(numpy.float32)
             else:
-                w = numpy.random.random((self.hidden_dim[i-1]+1, self.hidden_dim[i]))
+                w = numpy.random.random((self.hidden_dim[i-1]+1, self.hidden_dim[i])).astype(numpy.float32)
             self.weights.append(w)
-        self.weights.append(numpy.random.random((self.hidden_dim[-1]+1,  self.output_dim)))
+        self.weights.append(numpy.random.random((self.hidden_dim[-1]+1,  self.output_dim)).astype(numpy.float32))
         self.nlayers = len(self.weights)
 
     def normalize(self, A):
@@ -86,7 +88,7 @@ class NeuralNetworkClassifier(Classifier):
                 for i in range(a):
                     l = f.readline()
                     w.append([float(val) for val in l.split(',')])
-                self.weights.append(vstack(w))
+                self.weights.append(vstack(w).astype(numpy.float32))
                 l = f.readline()
 
     def activate(self, x):
@@ -123,15 +125,21 @@ class NeuralNetworkClassifier(Classifier):
             raise Exception("Wrong dimension for training data -  expecting %d, seeing %d" % (self.input_dim, M))
 
         Y = data
+        if Y.dtype != numpy.float32:
+            Y = Y.astype(numpy.float32)
         L = len(self.weights)
         NValues = [] # Need to store each neuron's value, 
         for i in range(L):
             w = self.weights[i]
             N, M = Y.shape
-            os = ones((N,1), numpy.float)        # Padding ones to support the offset parameter
+            os = ones((N,1), numpy.float32)       # Padding ones to support the offset parameter
             Y  = hstack((Y, os))
             NValues.append(Y)       # This will store every layer's output except the real output neurons'
-            Y  = matrix_multiply(Y, w)
+            if self.use_gpu:
+                Y = matrix_multiply_gpu(Y, w)
+            else:
+                Y = matrix_multiply(Y, w)
+
             if i < L-1:
                 Y  = self.activate(Y)
     
@@ -154,9 +162,18 @@ class NeuralNetworkClassifier(Classifier):
         test_labels - J-by-K matrix, testing data output. The first dimension is data points, and the second dimension is output space.
         Training uses stochastic gradient descend with backpropagation.
         """
+        if data.dtype != numpy.float32:
+            data = data.astype(numpy.float32)
+        if labels.dtype != numpy.float32:
+            labels = labels.astype(numpy.float32)
         if test_data is None or test_labels is None:
             test_data = data
             test_labels = labels
+        else:
+            if test_data.dtype != numpy.float32:
+                test_data = test_data.astype(numpy.float32)
+            if test_labels.dtype != numpy.float32:
+                test_labels = test_labels.astype(numpy.float32)
 
         N1, L = data.shape
         N2, K = labels.shape
@@ -207,9 +224,12 @@ class NeuralNetworkClassifier(Classifier):
                         # Except for the output layer, 
                         # the offset neurons are not connected to lower layers
                         signal = signal[:,:-1]
-
-                    dw = matrix_multiply(transpose(input_val), signal)
-                    signal = matrix_multiply(signal, transpose(weight))
+                    if self.use_gpu:
+                        dw = matrix_multiply_gpu(transpose(input_val), signal)
+                        signal = matrix_multiply_gpu(signal, transpose(weight))
+                    else:
+                        dw = matrix_multiply(transpose(input_val), signal)
+                        signal = matrix_multiply(signal, transpose(weight))
                     signal = signal * nvalues[l]
                     signal = signal * (1-nvalues[l])
 
@@ -298,7 +318,18 @@ class NeuralNetworkClassifier(Classifier):
 
 
 if __name__ == "__main__":
-    nn = NeuralNetworkClassifier(2, 2, [4,3], 2, 10)
+    USE_GPU = len(sys.argv)>1 and sys.argv[1]=='gpu'
+    if USE_GPU:
+        print "Use GPU"
+
+    nn = NeuralNetworkClassifier(
+        input_dim=2, 
+        output_dim=2, 
+        hidden_dim=[4,3], 
+        learning_rate=1, 
+        train_epoches=20,
+        use_gpu=USE_GPU)
+
     train_data = array([
         [9,6], 
         [10,2],
@@ -311,6 +342,7 @@ if __name__ == "__main__":
         [0,1],
         [0,1],
         ])
+
     nn.train(train_data, train_label)
 
     nn.save_weights()
