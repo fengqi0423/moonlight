@@ -94,21 +94,20 @@ if __name__ == "__main__":
 
     dim1 = int(sys.argv[1])
     dim2 = int(sys.argv[2])
-    
-    dim2 = int(sys.argv[2])
+    dim3 = int(sys.argv[3])
     a = numpy.random.randn(dim1, dim2).astype(numpy.float32)
-    b = numpy.random.randn(dim2, dim1).astype(numpy.float32)
+    b = numpy.random.randn(dim2, dim3).astype(numpy.float32)
 #    a = numpy.ones((dim1, dim2), dtype=numpy.float32)
 #    b = numpy.ones((dim2, dim1), dtype=numpy.float32)
 
     t0 = time.time() 
-    r = matrix_multiply_gpu(a, b, (5, 5, 1), (200, 200))
+    r = matrix_multiply_gpu(a, b, (25, 1, 1), (100, 1))
     t1 = time.time()
-    print r
+#    print r
     print t1-t0
 
     t0 = time.time()
     r = numpy.dot(a, b)
     t1 = time.time()
-    print r
+#    print r
     print t1-t0
